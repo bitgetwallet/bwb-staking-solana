@@ -1,0 +1,20 @@
+[toolchain]
+
+[features]
+seeds = false
+skip-lint = false
+
+# [programs.localnet]
+# bwb_stake = "EESbV1Tt37ytJgMemEXWzJ6rJzo6rj8RJjDYBKVSdfKU"
+[programs.devnet]
+bwb_stake = "EESbV1Tt37ytJgMemEXWzJ6rJzo6rj8RJjDYBKVSdfKU"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = "/Users/xp/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
