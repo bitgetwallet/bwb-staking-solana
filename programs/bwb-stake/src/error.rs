@@ -14,6 +14,8 @@ pub enum ErrorCode {
     NotMatchStakeDays,
     #[msg["Invalid admin"]]
     InvalidAdmin,
+    #[msg["Invalid operator"]]
+    InvalidOperator,
     #[msg["Not visible stake amount"]]
     NotVisibleStakeAmount,
     #[msg["Not stake time"]]
@@ -25,5 +27,22 @@ pub enum ErrorCode {
     #[msg("Arithmetic Error (overflow/underflow)")]
     ArithmeticError,
     #[msg("Not reach unstake time")]
-    NotReachUnstakeTime
+    NotReachUnstakeTime,
+    #[msg("Start time need LT end time")]
+    StartTimeNeedLTEndTime,
+    #[msg("Input stake amount not equal order amount")]
+    InputStakeAmountNotEqualOrderAmount,
+    #[msg("Input reward amount not equal order reward")]
+    InputRewardAmountNotEqualOrderReward,
+    #[msg("Invalid user")]
+    InvalidUser,
+    #[msg("Duration need GT 0")]
+    DurationNeedGT0,
+    #[msg("Start time need GT 0")]
+    StartTimeNeedGT0,
+    #[msg("Pool already start stake")]
+    PoolAlreadyStartStake,
+    #[msg("Order already unstake")]
+    OrderAlreadyUnstake
+
 }

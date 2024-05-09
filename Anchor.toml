@@ -4,10 +4,10 @@
 seeds = false
 skip-lint = false
 
-# [programs.localnet]
-# bwb_stake = "EESbV1Tt37ytJgMemEXWzJ6rJzo6rj8RJjDYBKVSdfKU"
+# [programs.mainnet]
+# bwb_stake = "Eqsv4KVNu7tQirC5J5jb4ZT1gSbjUiksSye8oZyFsVc4"
 [programs.devnet]
-bwb_stake = "EESbV1Tt37ytJgMemEXWzJ6rJzo6rj8RJjDYBKVSdfKU"
+bwb_stake = "Eqsv4KVNu7tQirC5J5jb4ZT1gSbjUiksSye8oZyFsVc4"
 
 [registry]
 url = "https://api.apr.dev"
