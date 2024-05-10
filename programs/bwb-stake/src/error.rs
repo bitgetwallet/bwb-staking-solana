@@ -43,6 +43,11 @@ pub enum ErrorCode {
     #[msg("Pool already start stake")]
     PoolAlreadyStartStake,
     #[msg("Order already unstake")]
-    OrderAlreadyUnstake
-
+    OrderAlreadyUnstake,
+    #[msg("Invalid pool id")]
+    InvalidPoolId,
+    #[msg("Claim reward check fail")]
+    ClaimRewardCheckFail,
+    #[msg("Withdraw amount check fail")]
+    WithdrawAmountCheckFail
 }
