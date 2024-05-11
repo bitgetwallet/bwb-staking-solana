@@ -9,8 +9,7 @@ declare_id!("Eqsv4KVNu7tQirC5J5jb4ZT1gSbjUiksSye8oZyFsVc4");
 #[program]
 pub mod bwb_stake {
     use super::*;
-    //const ONE_DAY: u64 = 86400;
-    const ONE_DAY: u64 = 120;// 2 m for test
+    const ONE_DAY: u64 = 86400;
 
     pub fn initialize(
         ctx: Context<Initialize>, 
@@ -84,9 +83,8 @@ pub mod bwb_stake {
         require!(duration > 0, ErrorCode::DurationNeedGT0);
         require!(stake_end_at > stake_start_at, ErrorCode::StartTimeNeedLTEndTime);
 
-        let clock = Clock::get()?;
         let pool = &mut ctx.accounts.pool;
-        //require!(clock.unix_timestamp < pool.stake_start_at, ErrorCode::PoolAlreadyStartStake);
+        require!(clock.unix_timestamp < pool.stake_start_at, ErrorCode::PoolAlreadyStartStake);
 
         pool.stake_cap = stake_cap;
         pool.reward_cap = reward_cap;
@@ -241,13 +239,13 @@ pub mod bwb_stake {
         // check order_id
         let user_info = &mut ctx.accounts.user_info;
         require!(order_id < user_info.next_order_id, ErrorCode::InvalidOrderId);
-        // check user == staker
         
         // check order info
         let clock = Clock::get()?;
         let order = &mut ctx.accounts.order;
         require!(clock.unix_timestamp >= order.unstake_time, ErrorCode::NotReachUnstakeTime);
         require!(!order.is_unstake, ErrorCode::OrderAlreadyUnstake);
+        // check user == order.staker
         require!(order.staker == ctx.accounts.user.key(), ErrorCode::InvalidUser);
 
         // claim reward
@@ -289,7 +287,7 @@ pub mod bwb_stake {
         require!(before_vault_bal - after_vault_bal == withdraw_amount, ErrorCode::WithdrawAmountCheckFail);
 
         // update order
-        // order.lastClaimedTime = clock.unix_timestamp; // todo will open comment
+        order.last_claimed_time = clock.unix_timestamp;
         order.claimed_reward = order.reward_amount ;
         msg!("order.claimed_reward is {:?}", order.claimed_reward);
         order.is_unstake = true;
@@ -365,7 +363,7 @@ pub mod bwb_stake {
         require!(before_vault_bal - after_vault_bal == reward, ErrorCode::ClaimRewardCheckFail);
 
         // update order
-        // order.lastClaimedTime = clock.unix_timestamp;// todo will open comment
+        order.last_claimed_time = clock.unix_timestamp;
         order.claimed_reward += reward ;
         msg!("claimed_reward is {:?}", order.claimed_reward);
         // update user info
@@ -380,79 +378,6 @@ pub mod bwb_stake {
 
         Ok(())
     }
-
-    pub fn claim_reward_test(
-        ctx: Context<ClaimReward>, 
-        order_id: u64,
-        reward_amount: u64
-    ) -> Result<()> {
-        msg!("Instruction: Claim Reward");
-
-        // check paused status
-        let admin_info = &ctx.accounts.admin_info;
-        require!(!admin_info.is_paused, ErrorCode::ProtocolPaused);
-        let pool = &mut ctx.accounts.pool;
-        require!(!pool.is_paused, ErrorCode::PoolPaused);
-        
-        // check order_id
-        let user_info = &mut ctx.accounts.user_info;
-        require!(order_id < user_info.next_order_id, ErrorCode::InvalidOrderId);
-        
-        // check order info
-        let clock = Clock::get()?;
-        let order = &mut ctx.accounts.order;
-        require!(order.staker == ctx.accounts.user.key(), ErrorCode::InvalidUser);
-        require!(clock.unix_timestamp >= order.start_time, ErrorCode::NotStartClaimReward);
-
-        // claim reward
-        let mut real_time: i64 = clock.unix_timestamp;
-        if clock.unix_timestamp >= order.unstake_time {
-            real_time = order.unstake_time;
-        }
-        msg!("pool.duration is {:?}", pool.duration);
-        msg!("ONE_DAY is {:?}", ONE_DAY);
-        msg!("real_time is {:?}", real_time);
-        msg!("order.start_time is {:?}", order.start_time);
-        
-        let passed_days = (real_time - order.start_time) as u64 / ONE_DAY;
-        let period_days = pool.duration / ONE_DAY;
-        let reward = order.reward_amount * passed_days / period_days - order.claimed_reward;
-        //(passed_days - claimed_days)
-        msg!("passed_days is {:?}", passed_days);
-        msg!("period_days is {:?}", period_days);
-        msg!("reward is {:?}", reward);
-
-        // require!(reward <= pool.reward_visible, ErrorCode::RewardExceed);
-        // require!(reward <= ctx.accounts.vault_token_account.amount.into(), ErrorCode::AmountOverBalance);
-        // //check input params
-        // require!(reward_amount == reward, ErrorCode::InputRewardAmountNotEqualOrderReward);
-        
-        // // claim reward
-        // let bump = ctx.bumps.admin_info;
-        // let seeds = &[b"admin_info".as_ref(), &[bump]];
-        // token::transfer(
-        //     CpiContext::new(
-        //         ctx.accounts.token_program.to_account_info(),
-        //         token::Transfer {
-        //             from: ctx.accounts.vault_token_account.to_account_info(),
-        //             to: ctx.accounts.user_token_wallet.to_account_info(),
-        //             authority: ctx.accounts.admin_info.to_account_info(),
-        //         },
-        //     )
-        //     .with_signer(&[&seeds[..]]),
-        //     reward ,
-        // )?;
-
-        // // update order
-        // order.claimed_reward += reward ;
-        // msg!("claimed_reward is {:?}", order.claimed_reward);
-        // // update user info
-        // user_info.total_claimed_reward += reward;
-        // msg!("total_claimed_reward is {:?}", user_info.total_claimed_reward);
-
-        Ok(())
-    }
-
 
     pub fn withdraw_bwb_token(ctx: Context<WithdrawBWBToken>, amount: u64) -> Result<()> {
 
@@ -739,8 +664,8 @@ pub struct PoolInfo {// PDA
     pub pool_id: u64,
     pub stake_cap: u64,
     pub reward_cap: u64,
-    pub stake_visible: u64,// ==  stake_cap - cur_total_stake
-    pub reward_visible: u64,// == reward_cap - claimed_reward
+    pub stake_visible: u64,// stake_cap - sum(order.stake_amount)
+    pub reward_visible: u64,// reward_cap - sum(order.reward_amount)
     pub stake_start_at: i64,
     pub stake_end_at: i64,
     pub duration: u64//seconds for 1,3,6 month
@@ -751,8 +676,8 @@ impl PoolInfo {
 }
 
 #[account]
-pub struct UserInfo {//PDA // stake next_order_id =>orderInfo(order_id) , claim, unstake(order_id)
-    pub next_order_id: u64,//order_id=0,1,2,3
+pub struct UserInfo {
+    pub next_order_id: u64,//order_id=0,1,2,... // stake next_order_id =>orderInfo(order_id) 
     pub total_stake:u64,
     pub total_reward: u64,
     pub total_claimed_reward: u64
@@ -772,10 +697,10 @@ pub struct OrderInfo {// key(user,order_id,"new_order") => PDA
     pub unstake_time: i64,// what time to unstake 
     pub claimed_reward: u64,
     pub is_unstake: bool,
-    // pub lastClaimedTime: i64,// todo will open comment
+    pub last_claimed_time: i64,
 }
 impl OrderInfo {
-    pub const LEN: usize = 8 + 8 + 32 + 16*2 + 8*3 + 1; // +8 // todo will add +8
+    pub const LEN: usize = 8 + 8 + 32 + 16*2 + 8*3 + 1 + 8;
 }
 
 #[derive(Accounts)]
