@@ -84,6 +84,7 @@ pub mod bwb_stake {
         require!(stake_end_at > stake_start_at, ErrorCode::StartTimeNeedLTEndTime);
 
         let pool = &mut ctx.accounts.pool;
+        let clock = Clock::get()?;
         require!(clock.unix_timestamp < pool.stake_start_at, ErrorCode::PoolAlreadyStartStake);
 
         pool.stake_cap = stake_cap;
