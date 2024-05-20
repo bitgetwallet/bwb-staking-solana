@@ -19,33 +19,19 @@ import {
 
 import {u64, TOKEN_PROGRAM_ID} from "@solana/spl-token";
 
-const PRIORITY_RATE = 10000; // MICRO_LAMPORTS 
+const PRIORITY_RATE = 1000; // MICRO_LAMPORTS 
 const PRIORITY_FEE_IX = ComputeBudgetProgram.setComputeUnitPrice({microLamports: PRIORITY_RATE});
 
 async function updatePool(
-   poolId,time_stamp, program, pool_admin, adminInfoPda, 
-    stake_cap_bn, reward_cap_bn, duration_time, duration_time_3days
+   poolId, start_at, end_at, program, pool_admin, adminInfoPda, 
+    stake_cap_bn, reward_cap_bn, duration_time,poolPda,duration_days
 ) {
-    let adminInfoPdaData = await program.account.adminInfo.fetch(adminInfoPda);
-    console.log("adminInfoPdaData is ", adminInfoPdaData);
-    
-    // new pool //seeds=[b"new_pool", &admin_info.next_pool_id.to_le_bytes()],
-    let [newPoolPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("new_pool"), new u64(adminInfoPdaData.nextPoolId.toString()).toBuffer()],
-      program.programId
-    );
-  
-    console.log("newPoolPda is",newPoolPda);
-  
-    const start_at = new u64(time_stamp);
-    const end_at = start_at.add(duration_time_3days);
-
     let tx = await program.methods.updatePool(
-      poolId,stake_cap_bn, reward_cap_bn, start_at, end_at, duration_time
+      poolId,stake_cap_bn, reward_cap_bn, start_at, end_at, duration_time,duration_days
     ).accounts({
       poolAdmin: pool_admin.publicKey,
       adminInfo:adminInfoPda,
-      pool:newPoolPda,
+      pool:poolPda,
       systemProgram:SystemProgram.programId,
       rent:SYSVAR_RENT_PUBKEY,
     }).preInstructions([PRIORITY_FEE_IX])
@@ -53,7 +39,7 @@ async function updatePool(
     .rpc();
     console.log("Your transaction signature", tx);
   
-    let poolInfoPdaData = await program.account.poolInfo.fetch(newPoolPda);
+    let poolInfoPdaData = await program.account.poolInfo.fetch(poolPda);
     console.log("duration is ", poolInfoPdaData.duration.toString());
     console.log("stakeStartAt is ", poolInfoPdaData.stakeStartAt.toString());
     console.log("stakeEndAt is ", poolInfoPdaData.stakeEndAt.toString());
@@ -105,9 +91,13 @@ async function updatePool(
 
     const one_day_test = new u64("300");//test 2m per day
 
-    //7 days 15% //poolId =0
-    const stake_cap_bn = new u64("1500000000000000");
-    const reward_cap_bn = new u64("4315100000000");
+    // //7 days 15% //poolId =0
+    // const stake_cap_bn = new u64("1500000000000000");
+    // const reward_cap_bn = new u64("4315100000000");
+
+    //6 days 15% //poolId =3
+    const stake_cap_bn = new u64("100000000000");//1000
+    const reward_cap_bn = new u64("287671232");//2.876
     
     const duration_time = one_day_test.mul(new u64(7));// test 7 days
     const duration_time_3days = new u64("259200");// test 
@@ -126,9 +116,27 @@ async function updatePool(
     // const duration_time = one_day_test.mul(new u64(90));// test 90 days
     // const duration_time_3days = new u64("259200");// test 
     
-    let poolId = new u64(0);
-    await updatePool(poolId,time_stamp, program, pool_admin, adminInfoPda, 
-        stake_cap_bn, reward_cap_bn, duration_time, duration_time_3days
+    let adminInfoPdaData = await program.account.adminInfo.fetch(adminInfoPda);
+    console.log("adminInfoPdaData is ", adminInfoPdaData);
+
+    let poolId = new u64(3);
+    // new pool //seeds=[b"new_pool", &admin_info.next_pool_id.to_le_bytes()],
+    let [poolPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("new_pool"), new u64(poolId).toBuffer()],
+      program.programId
+    );
+    console.log("newPoolPda is",poolPda);
+
+    let poolInfoPdaData = await program.account.poolInfo.fetch(poolPda);
+    console.log("poolInfoPdaData is ", poolInfoPdaData);
+
+    const start_at = new u64(poolInfoPdaData.stakeStartAt);
+    let newEndAt = "1715940000";
+    const end_at = new u64(newEndAt);
+  
+    await updatePool(
+      poolId,start_at, end_at, program, pool_admin, adminInfoPda, 
+      stake_cap_bn, reward_cap_bn, duration_time,poolPda,duration_days
     )
 
 })();

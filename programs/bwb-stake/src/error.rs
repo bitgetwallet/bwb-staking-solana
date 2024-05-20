@@ -36,8 +36,10 @@ pub enum ErrorCode {
     InputRewardAmountNotEqualOrderReward,
     #[msg("Invalid user")]
     InvalidUser,
-    #[msg("Duration need GT 0")]
+    #[msg("Duration need gt 0")]
     DurationNeedGT0,
+    #[msg("Duration must be multi days")]
+    DurationMustBeMultiDays,
     #[msg("Start time need GT 0")]
     StartTimeNeedGT0,
     #[msg("Pool already start stake")]
@@ -49,5 +51,16 @@ pub enum ErrorCode {
     #[msg("Claim reward check fail")]
     ClaimRewardCheckFail,
     #[msg("Withdraw amount check fail")]
-    WithdrawAmountCheckFail
+    WithdrawAmountCheckFail,
+    #[msg("Start time need gte now")]
+    StartTimeNeedGTENow,
+    #[msg("Two caps need gt 0")]
+    TwoCapsNeedGT0,
+    #[msg("Passed days need gt 0")]
+    PassedDaysNeedGT0,
+    #[msg("Stake amount need GT 0")]
+    StakeAmountNeedGT0,
+    #[msg("Reward need GT 0")]
+    RewardNeedGT0
+
 }

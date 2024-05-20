@@ -23,8 +23,8 @@ const PRIORITY_RATE = 10000; // MICRO_LAMPORTS
 const PRIORITY_FEE_IX = ComputeBudgetProgram.setComputeUnitPrice({microLamports: PRIORITY_RATE});
 
 async function createNewPool(
-    time_stamp, program, pool_admin, adminInfoPda, 
-    stake_cap_bn, reward_cap_bn, duration_time, duration_time_3days
+    start_at, end_at, program, pool_admin, adminInfoPda, 
+    stake_cap_bn, reward_cap_bn, duration_time, duration_days
 ) {
     let adminInfoPdaData = await program.account.adminInfo.fetch(adminInfoPda);
     console.log("adminInfoPdaData is ", adminInfoPdaData);
@@ -36,12 +36,9 @@ async function createNewPool(
     );
   
     console.log("newPoolPda is",newPoolPda);
-  
-    const start_at = new u64(time_stamp);
-    const end_at = start_at.add(duration_time_3days);
 
     let tx = await program.methods.createNewPool(
-      stake_cap_bn, reward_cap_bn, start_at, end_at,duration_time
+      stake_cap_bn, reward_cap_bn, start_at, end_at,duration_time,duration_days
     ).accounts({
       poolAdmin: pool_admin.publicKey,
       adminInfo:adminInfoPda,
@@ -97,19 +94,20 @@ async function createNewPool(
         [Buffer.from("admin_info")],
         program.programId
     );
+    console.log("vaultTokenAccountPda is",vaultTokenAccountPda);
+    console.log("adminInfoPda is",adminInfoPda);
 
     let now_time = Date.now();
     let time_stamp = (now_time/1000).toFixed();
     console.log("now_time is",time_stamp);
-
     const one_day_test = new u64("300");//test 2m per day
 
-    //7 days 15% //poolId =0
-    const stake_cap_bn = new u64("1500000000000000");
-    const reward_cap_bn = new u64("4315100000000");
+    // //7 days 15% //poolId =0
+    // const stake_cap_bn = new u64("1500000000000000");
+    // const reward_cap_bn = new u64("4315100000000");
     
-    const duration_time = one_day_test.mul(new u64(7));// test 7 days
-    const duration_time_3days = new u64("259200");// test 
+    // const duration_time = one_day_test.mul(new u64(7));// test 7 days
+    // const duration_time_3days = new u64("259200");// test 
 
     // 30days 25% poolId =1
     // const stake_cap_bn = new u64("300000000000000");
@@ -125,8 +123,19 @@ async function createNewPool(
     // const duration_time = one_day_test.mul(new u64(90));// test 90 days
     // const duration_time_3days = new u64("259200");// test 
 
-    await createNewPool(time_stamp, program, pool_admin, adminInfoPda, 
-        stake_cap_bn, reward_cap_bn, duration_time, duration_time_3days
+    // 6days 15% //poolId =3
+    let startTime = "1715853600";//2024-05-16 18:00:00
+    let half_hour = new anchor.BN(1800);
+    const start_at = new u64(startTime);
+    const end_at = start_at.add(half_hour);
+    const stake_cap_bn = new u64("100000000000");
+    const reward_cap_bn = new u64("287671232");
+    const duration_time = one_day_test.mul(new u64(90));// test 90 days
+    const duration_time_1days = new u64("86400");// test 
+    const duration_days = new u64("90");
+
+    await createNewPool(start_at, end_at, program, pool_admin, adminInfoPda, 
+        stake_cap_bn, reward_cap_bn, duration_time, duration_days
     )
 
 })();

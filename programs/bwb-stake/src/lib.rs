@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, TokenAccount, Token, Transfer};
 use crate::error::ErrorCode;
+use crate::program::BwbStake;
 
 pub mod error;
 
@@ -29,6 +30,13 @@ pub mod bwb_stake {
 
         admin_info.stake_token_mint = ctx.accounts.stake_token_mint.key();
 
+        msg!("cosigner is {:?}", admin_info.cosigner);
+        msg!("admin is {:?}", admin_info.admin);
+        msg!("receiver is {:?}", admin_info.receiver);
+        msg!("operator is {:?}", admin_info.operator);
+        msg!("pool_admin is {:?}", admin_info.pool_admin);
+        msg!("stake_token_mint is {:?}", admin_info.stake_token_mint);
+
         Ok(())
     }
 
@@ -39,11 +47,23 @@ pub mod bwb_stake {
         stake_start_at: i64,
         stake_end_at: i64,
         duration: u64,
+        duration_days: u64
     ) -> Result<()> {
         msg!("Instruction: create_new_pool");
-        require!(stake_start_at > 0, ErrorCode::StartTimeNeedGT0);
-        require!(duration > 0, ErrorCode::DurationNeedGT0);
+        // check paused status
+        let admin_info = &ctx.accounts.admin_info;
+        require!(!admin_info.is_paused, ErrorCode::ProtocolPaused);
+
+        let clock = Clock::get()?;
+        require!(stake_start_at >= clock.unix_timestamp, ErrorCode::StartTimeNeedGTENow);
         require!(stake_end_at > stake_start_at, ErrorCode::StartTimeNeedLTEndTime);
+
+        require!(duration > 0, ErrorCode::DurationNeedGT0);
+        require!(duration == duration_days.checked_mul(ONE_DAY)
+            .ok_or(ErrorCode::ArithmeticError)?, ErrorCode::DurationMustBeMultiDays
+        );
+
+        require!(stake_cap > 0 && reward_cap > 0, ErrorCode::TwoCapsNeedGT0);
 
         let admin_info = &mut ctx.accounts.admin_info;
         let new_pool = &mut ctx.accounts.new_pool;
@@ -77,11 +97,23 @@ pub mod bwb_stake {
         stake_start_at: i64,
         stake_end_at: i64,
         duration: u64,
+        duration_days: u64
     )-> Result<()> {
         msg!("Instruction: update_pool");
-        require!(stake_start_at > 0, ErrorCode::StartTimeNeedGT0);
-        require!(duration > 0, ErrorCode::DurationNeedGT0);
+        // check paused status
+        let admin_info = &ctx.accounts.admin_info;
+        require!(!admin_info.is_paused, ErrorCode::ProtocolPaused);
+
+        let clock = Clock::get()?;
+        require!(stake_start_at >= clock.unix_timestamp, ErrorCode::StartTimeNeedGTENow);
         require!(stake_end_at > stake_start_at, ErrorCode::StartTimeNeedLTEndTime);
+
+        require!(duration > 0, ErrorCode::DurationNeedGT0);
+        require!(duration == duration_days.checked_mul(ONE_DAY)
+            .ok_or(ErrorCode::ArithmeticError)?, ErrorCode::DurationMustBeMultiDays
+        );
+
+        require!(stake_cap > 0 && reward_cap > 0, ErrorCode::TwoCapsNeedGT0);
 
         let pool = &mut ctx.accounts.pool;
         let clock = Clock::get()?;
@@ -107,6 +139,15 @@ pub mod bwb_stake {
         Ok(())
     }
 
+    pub fn update_admin(ctx: Context<UpdateAdminRole>, new_admin: Pubkey) -> Result<()> {
+        let admin_info = &mut ctx.accounts.admin_info;
+        msg!("old admin is {:?}", admin_info.admin);
+        admin_info.admin = new_admin;
+        msg!("new admin is {:?}", admin_info.admin);
+
+        Ok(())
+    }
+
     pub fn update_receiver(ctx: Context<UpdateAdminRole>, new_receiver: Pubkey) -> Result<()> {
         let admin_info = &mut ctx.accounts.admin_info;
         msg!("old receiver is {:?}", admin_info.receiver);
@@ -127,23 +168,23 @@ pub mod bwb_stake {
 
     pub fn update_operator(ctx: Context<UpdateAdminRole>, new_operator: Pubkey) -> Result<()> {
         let admin_info = &mut ctx.accounts.admin_info;
-        msg!("old cosigner is {:?}", admin_info.operator);
+        msg!("old operator is {:?}", admin_info.operator);
         admin_info.operator = new_operator;
-        msg!("new cosigner is {:?}", admin_info.operator);
+        msg!("new operator is {:?}", admin_info.operator);
 
         Ok(())
     }
 
     pub fn update_pool_admin(ctx: Context<UpdateAdminRole>, new_pool_admin: Pubkey) -> Result<()> {
         let admin_info = &mut ctx.accounts.admin_info;
-        msg!("old cosigner is {:?}", admin_info.pool_admin);
+        msg!("old pool_admin is {:?}", admin_info.pool_admin);
         admin_info.pool_admin = new_pool_admin;
-        msg!("new cosigner is {:?}", admin_info.pool_admin);
+        msg!("new pool_admin is {:?}", admin_info.pool_admin);
         Ok(())
     }
 
     pub fn set_admin_is_paused(ctx: Context<SetAdminIsPaused>, is_paused: bool) -> Result<()> {
-        let admin_info = &mut ctx.accounts.admin_info;
+        let admin_info: &mut Account<'_, AdminInfo> = &mut ctx.accounts.admin_info;
         msg!("old paused is {:?}", admin_info.is_paused);
         admin_info.is_paused = is_paused;
         msg!("new paused is {:?}", admin_info.is_paused);
@@ -162,6 +203,7 @@ pub mod bwb_stake {
 
     pub fn stake(ctx: Context<Stake>, pool_id: u64, amount: u64) -> Result<()> {
         msg!("Instruction: Stake");
+        require!(amount > 0, ErrorCode::StakeAmountNeedGT0);
         // check paused status
         let admin_info = &ctx.accounts.admin_info;
         require!(!admin_info.is_paused, ErrorCode::ProtocolPaused);
@@ -195,27 +237,26 @@ pub mod bwb_stake {
         new_order.staker = ctx.accounts.user.key();
         new_order.stake_amount = amount;
 
-        let tmp: u128 = pool.reward_cap as u128 * amount as u128;
-        new_order.reward_amount = (tmp / pool.stake_cap as u128) as u64;
+        let tmp: u128 = (pool.reward_cap as u128).checked_mul(amount as u128).ok_or(ErrorCode::ArithmeticError)?;
+        new_order.reward_amount = (tmp.checked_div(pool.stake_cap as u128).ok_or(ErrorCode::ArithmeticError)?) as u64;
 
         new_order.start_time = clock.unix_timestamp;
-        new_order.unstake_time = clock.unix_timestamp + pool.duration as i64;
-        
+        new_order.unstake_time = clock.unix_timestamp.checked_add(pool.duration as i64).ok_or(ErrorCode::ArithmeticError)?;
 
         // update user info
         let user_info = &mut ctx.accounts.user_info;
-        user_info.next_order_id += 1;
-        user_info.total_stake += amount;
-        user_info.total_reward += new_order.reward_amount;
+        user_info.next_order_id = user_info.next_order_id.checked_add(1).ok_or(ErrorCode::ArithmeticError)?;
+        user_info.total_stake = user_info.total_stake.checked_add(amount).ok_or(ErrorCode::ArithmeticError)?;
+        user_info.total_reward = user_info.total_reward.checked_add(new_order.reward_amount).ok_or(ErrorCode::ArithmeticError)?;
 
         // update pool info
-        pool.stake_visible -= amount;
-        pool.reward_visible -= new_order.reward_amount;
+        pool.stake_visible = pool.stake_visible.checked_sub(amount).ok_or(ErrorCode::ArithmeticError)?;
+        pool.reward_visible = pool.reward_visible.checked_sub(new_order.reward_amount).ok_or(ErrorCode::ArithmeticError)?;
 
         // emit Stake log
         msg!("staker is {:?}", ctx.accounts.user.key());
-        msg!("pool_id is {:?} days", pool_id);
-        msg!("order_id is {:?} days", new_order.order_id);
+        msg!("pool_id is {:?}", pool_id);
+        msg!("order_id is {:?}", new_order.order_id);
         msg!("stake amount is {:?}",amount);
         msg!("reward amount is {:?}",new_order.reward_amount);
         msg!("unstake_time {:?}",new_order.unstake_time);
@@ -250,19 +291,29 @@ pub mod bwb_stake {
         require!(order.staker == ctx.accounts.user.key(), ErrorCode::InvalidUser);
 
         // claim reward
-        let reward = order.reward_amount - order.claimed_reward;
-        require!(reward + order.claimed_reward <= order.reward_amount, ErrorCode::RewardExceed);
+        let reward = order.reward_amount.checked_sub(order.claimed_reward).ok_or(ErrorCode::ArithmeticError)?;
+        require!(reward.checked_add(order.claimed_reward).ok_or(ErrorCode::ArithmeticError)? <= order.reward_amount, ErrorCode::RewardExceed);
         msg!("reward is {:?}", reward);
 
         // check input params
         require!(unstake_amount == order.stake_amount, ErrorCode::InputStakeAmountNotEqualOrderAmount);
         require!(reward_amount == reward, ErrorCode::InputRewardAmountNotEqualOrderReward);
 
-        let withdraw_amount = order.stake_amount + reward;
+        let withdraw_amount = order.stake_amount.checked_add(reward).ok_or(ErrorCode::ArithmeticError)?;
         msg!("withdraw_amount is {:?}", withdraw_amount);
-        require!(withdraw_amount <= order.stake_amount + order.reward_amount, ErrorCode::AmountOverBalance);
+        require!(withdraw_amount <= order.stake_amount.checked_add(order.reward_amount).ok_or(ErrorCode::ArithmeticError)?, ErrorCode::AmountOverBalance);
         require!(withdraw_amount <= ctx.accounts.vault_token_account.amount, ErrorCode::AmountOverBalance);
-        
+
+        // update order
+        order.last_claimed_time = clock.unix_timestamp;
+        order.claimed_reward = order.reward_amount ;
+        msg!("order.claimed_reward is {:?}", order.claimed_reward);
+        order.is_unstake = true;
+        // update user info
+        user_info.total_claimed_reward = user_info.total_claimed_reward.checked_add(reward).ok_or(ErrorCode::ArithmeticError)?;
+        user_info.total_stake = user_info.total_stake.checked_sub(unstake_amount).ok_or(ErrorCode::ArithmeticError)?;
+        msg!("user_info.total_claimed_reward is {:?}", user_info.total_claimed_reward);
+
         let before_vault_bal = ctx.accounts.vault_token_account.amount;
         let before_user_bal = ctx.accounts.user_token_wallet.amount;
         // unstake and claim
@@ -281,21 +332,23 @@ pub mod bwb_stake {
             withdraw_amount,
         )?;
 
+        ctx.accounts.vault_token_account.reload()?;
+        ctx.accounts.user_token_wallet.reload()?;
+
         let after_vault_bal = ctx.accounts.vault_token_account.amount;
         let after_user_bal = ctx.accounts.user_token_wallet.amount;
 
-        require!(after_user_bal - before_user_bal == withdraw_amount, ErrorCode::WithdrawAmountCheckFail);
-        require!(before_vault_bal - after_vault_bal == withdraw_amount, ErrorCode::WithdrawAmountCheckFail);
+        require!(after_user_bal.checked_sub(before_user_bal).ok_or(ErrorCode::ArithmeticError)? == withdraw_amount, ErrorCode::WithdrawAmountCheckFail);
+        require!(before_vault_bal.checked_sub(after_vault_bal).ok_or(ErrorCode::ArithmeticError)? == withdraw_amount, ErrorCode::WithdrawAmountCheckFail);
 
-        // update order
-        order.last_claimed_time = clock.unix_timestamp;
-        order.claimed_reward = order.reward_amount ;
-        msg!("order.claimed_reward is {:?}", order.claimed_reward);
-        order.is_unstake = true;
-        // update user info
-        user_info.total_claimed_reward += reward;
-        msg!("user_info.total_claimed_reward is {:?}", user_info.total_claimed_reward);
-
+        // emit Stake log
+        msg!("order_id is {:?} days", order.order_id);
+        msg!("staker is {:?}", ctx.accounts.user.key());
+        msg!("unstake amount {:?}",order.stake_amount);
+        msg!("reward amount is {:?}",reward);
+        msg!("order unstake status is {:?}",order.is_unstake);
+        msg!("order claimed reward is {:?}",order.claimed_reward);
+        
         Ok(())
     }
 
@@ -327,18 +380,29 @@ pub mod bwb_stake {
         if clock.unix_timestamp >= order.unstake_time {
             real_time = order.unstake_time;
         }
-        let passed_days = (real_time - order.start_time) as u64 / ONE_DAY;
-        let period_days = pool.duration / ONE_DAY;
-        let reward = order.reward_amount * passed_days / period_days - order.claimed_reward;
+        let passed_days = ((real_time.checked_sub(order.start_time).ok_or(ErrorCode::ArithmeticError)?) as u64).checked_div(ONE_DAY).ok_or(ErrorCode::ArithmeticError)?;
+        
+        let period_days = pool.duration.checked_div(ONE_DAY).ok_or(ErrorCode::ArithmeticError)?;
+        let reward = ((order.reward_amount.checked_mul(passed_days).ok_or(ErrorCode::ArithmeticError)?).checked_div(period_days).ok_or(ErrorCode::ArithmeticError)?).checked_sub(order.claimed_reward).ok_or(ErrorCode::ArithmeticError)?;
+
+        require!(reward > 0, ErrorCode::RewardNeedGT0);
         //(passed_days - claimed_days)
         msg!("passed_days is {:?}", passed_days);
         msg!("period_days is {:?}", period_days);
         msg!("reward is {:?}", reward);
 
-        require!(reward + order.claimed_reward <= order.reward_amount, ErrorCode::RewardExceed);
+        require!(reward.checked_add(order.claimed_reward).ok_or(ErrorCode::ArithmeticError)? <= order.reward_amount, ErrorCode::RewardExceed);
         require!(reward <= ctx.accounts.vault_token_account.amount.into(), ErrorCode::AmountOverBalance);
         //check input params
         require!(reward_amount == reward, ErrorCode::InputRewardAmountNotEqualOrderReward);
+
+        // update order
+        order.last_claimed_time = clock.unix_timestamp;
+        order.claimed_reward = order.claimed_reward.checked_add(reward).ok_or(ErrorCode::ArithmeticError)?;
+        msg!("claimed_reward is {:?}", order.claimed_reward);
+        // update user info
+        user_info.total_claimed_reward = user_info.total_claimed_reward.checked_add(reward).ok_or(ErrorCode::ArithmeticError)?;
+        msg!("total_claimed_reward is {:?}", user_info.total_claimed_reward);
 
         let before_vault_bal = ctx.accounts.vault_token_account.amount;
         let before_user_bal = ctx.accounts.user_token_wallet.amount;
@@ -357,19 +421,15 @@ pub mod bwb_stake {
             .with_signer(&[&seeds[..]]),
             reward ,
         )?;
+
+        ctx.accounts.vault_token_account.reload()?;
+        ctx.accounts.user_token_wallet.reload()?;
+        
         let after_vault_bal = ctx.accounts.vault_token_account.amount;
         let after_user_bal = ctx.accounts.user_token_wallet.amount;
 
-        require!(after_user_bal - before_user_bal == reward, ErrorCode::ClaimRewardCheckFail);
-        require!(before_vault_bal - after_vault_bal == reward, ErrorCode::ClaimRewardCheckFail);
-
-        // update order
-        order.last_claimed_time = clock.unix_timestamp;
-        order.claimed_reward += reward ;
-        msg!("claimed_reward is {:?}", order.claimed_reward);
-        // update user info
-        user_info.total_claimed_reward += reward;
-        msg!("total_claimed_reward is {:?}", user_info.total_claimed_reward);
+        require!(after_user_bal.checked_sub(before_user_bal).ok_or(ErrorCode::ArithmeticError)? == reward, ErrorCode::ClaimRewardCheckFail);
+        require!(before_vault_bal.checked_sub(after_vault_bal).ok_or(ErrorCode::ArithmeticError)? == reward, ErrorCode::ClaimRewardCheckFail);
 
         msg!("order_id is {:?}", order_id);
         msg!("reward is {:?}", reward);
@@ -384,7 +444,7 @@ pub mod bwb_stake {
 
         // Transfer tokens from taker to initializer
         let bump = ctx.bumps.admin_info;
-        let seeds = &[b"MerkleDistributor".as_ref(), &[bump]];
+        let seeds = &[b"admin_info".as_ref(), &[bump]];
 
         token::transfer(
             CpiContext::new(
@@ -424,7 +484,7 @@ pub mod bwb_stake {
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(
-        init, payer = payer, space = 8 + AdminInfo::LEN,
+        init, payer = authority, space = 8 + AdminInfo::LEN,
         seeds=[b"admin_info"],
         bump
     )]
@@ -435,7 +495,7 @@ pub struct Initialize<'info> {
 
     #[account(
         init,
-        payer = payer,
+        payer = authority,
         seeds=[b"vault_token_account"],
         token::mint=stake_token_mint,
         token::authority=admin_info,
@@ -444,7 +504,12 @@ pub struct Initialize<'info> {
     vault_token_account: Account<'info, TokenAccount>,
 
     #[account(mut)]
-    pub payer: Signer<'info>,
+    pub authority: Signer<'info>,
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()))]
+    pub program: Program<'info, BwbStake>,
+    #[account(constraint = program_data.upgrade_authority_address == Some(authority.key()))]
+    pub program_data: Account<'info, ProgramData>,
+    
     pub token_program: Program<'info, Token>,
     system_program: Program<'info, System>
 }
@@ -500,15 +565,6 @@ pub struct SetPoolIsPaused<'info> {
 
 #[derive(Accounts)]
 pub struct SetAdminIsPaused<'info> {
-    #[account(mut, seeds=[b"admin_info"],bump)]
-    pub admin_info: Account<'info, AdminInfo>,
-    #[account(mut, address = admin_info.operator @ ErrorCode::InvalidOperator)]
-    pub operator: Signer<'info>,
-    
-}
-
-#[derive(Accounts)]
-pub struct SetNextPoolId<'info> {
     #[account(mut, seeds=[b"admin_info"],bump)]
     pub admin_info: Account<'info, AdminInfo>,
     #[account(mut, address = admin_info.operator @ ErrorCode::InvalidOperator)]
