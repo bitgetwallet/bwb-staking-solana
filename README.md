@@ -1,4 +1,4 @@
-# bwb-staking-solana
+# BWB Staking
 ## About 
 BWB Staking is a secure and decentralized staking protocol where users can stake BWB to earn rewards. It offers multiple fixed-term options, allowing users to choose between 7-day, 30-day, and 90-day staking periods based on their preferences. Once the staking period ends, users can unstake and claim their rewards. During the staking period, users can also claim rewards at any time.
 
